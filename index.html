@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PixelGlitz</title>
+
+  <!-- MediaPipe Face Mesh & Camera Utils Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+  <style>
+    body { 
+      background: #121212; 
+      color: white; 
+      text-align: center; 
+      font-family: sans-serif; 
+    }
+    .camera-box { 
+      position: relative; 
+      width: 640px; 
+      height: 480px; 
+      margin: 20px auto;
+    }
+    video,canvas { 
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%; 
+      height: 100%; 
+      border-radius: 12px; 
+      transform: scaleX(-1); 
+    }
+    #status {
+      color: #34d399;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>PixelGlitz</h1>
+  <p id="status">Loading AI Model...</p>
+
+<div id="glassPanel" style="position: relative; z-index: 999; margin: 12px auto; padding: 14px 18px; max-width: 640px; border-radius: 24px; background: rgba(25, 25, 30, 0.65); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); box-shadow: 0 8px 32px rgba(0,0,0,0.35);">  <!-- Wing Shape Buttons -->
+  <div id="styleControls" style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 12px;">
+    <button id="btn-auto" class="style-btn" onclick="setStyleMode('auto')" style="padding: 7px 14px; border-radius: 20px; border: 1px solid #ff2a7a; background: #ff2a7a; color: white; font-weight: 600; cursor: pointer; transition: 0.2s;">✨ AI Auto</button>
+    <button id="btn-puppy" class="style-btn" onclick="setStyleMode('puppy')" style="padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #eee; cursor: pointer; transition: 0.2s;">🐶 Soft Puppy</button>
+    <button id="btn-classic" class="style-btn" onclick="setStyleMode('classic')" style="padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #eee; cursor: pointer; transition: 0.2s;">🖤 Classic</button>
+    <button id="btn-fox" class="style-btn" onclick="setStyleMode('fox')" style="padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #eee; cursor: pointer; transition: 0.2s;">🦊 Fox Flick</button>
+    <button id="btn-siren" class="style-btn" onclick="setStyleMode('siren')" style="padding: 7px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #eee; cursor: pointer; transition: 0.2s;">🔥 Siren</button>
+  </div>
+
+  <!-- Liner Shade & Stencil Mode Swatches -->
+  <div style="display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;">
+    <span style="color: #bbb; font-size: 13px; font-weight: 500;">Formula:</span>
+    <button id="shade-black" class="shade-btn" onclick="setShade('black')" style="padding: 5px 12px; border-radius: 14px; border: 2px solid #fff; background: #0a0a0c; color: white; font-size: 12px; cursor: pointer;">Jet Black</button>
+    <button id="shade-espresso" class="shade-btn" onclick="setShade('espresso')" style="padding: 5px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.2); background: #3b2316; color: #f3e5dc; font-size: 12px; cursor: pointer;">Espresso</button>
+    <button id="shade-plum" class="shade-btn" onclick="setShade('plum')" style="padding: 5px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.2); background: #52152b; color: #ffdce8; font-size: 12px; cursor: pointer;">Berry Plum</button>
+    <button id="shade-stencil" class="shade-btn" onclick="setShade('stencil')" style="padding: 5px 12px; border-radius: 14px; border: 1px dashed #00f0ff; background: rgba(0, 240, 255, 0.12); color: #00f0ff; font-size: 12px; cursor: pointer;">✏️ Trace Stencil</button>
+  </div>
+
+</div>
+  <div class="camera-box">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="output_canvas" width="640" height="480"></canvas>
+  </div>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const statusText = document.getElementById('status');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+
+    // Step 1: Initialize MediaPipe FaceMesh Engine
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+
+    // Configure options
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+
+   
+    });
+
+  let ratioHistory = [];
+  let currentEyeType = "Almond Eyes";
+  let currentWingStyle = "Classic Wing";
+  let currentLengthMult = 0.30;
+  let currentLiftMult = 0.16;
+
+  let selectedMode = "auto";
+  let currentShade = "black"; // "black", "espresso", "plum", or "stencil"
+
+  function setStyleMode(mode) {
+    selectedMode = mode;
+
+    // Highlight active style button
+    document.querySelectorAll(".style-btn").forEach(btn => {
+      btn.style.background = "rgba(255,255,255,0.08)";
+      btn.style.borderColor = "rgba(255,255,255,0.2)";
+      btn.style.fontWeight = "normal";
+    });
+    const activeBtn = document.getElementById(`btn-${mode}`);
+    if (activeBtn) {
+      activeBtn.style.background = "#ff2a7a";
+      activeBtn.style.borderColor = "#ff2a7a";
+      activeBtn.style.fontWeight = "600";
+    }
+
+    
+    if (mode === "puppy") {
+      currentWingStyle = "Soft Puppy Liner (Manual)";
+      currentLengthMult = 0.22;
+      currentLiftMult = 0.04;
+    } else if (mode === "classic") {
+      currentWingStyle = "Classic Wing (Manual)";
+      currentLengthMult = 0.30;
+      currentLiftMult = 0.16;
+    } else if (mode === "fox") {
+      currentWingStyle = "Elongated Fox Flick (Manual)";
+      currentLengthMult = 0.38;
+      currentLiftMult = 0.10;
+    } else if (mode === "siren") {
+      currentWingStyle = "Dramatic Siren Wing (Manual)";
+      currentLengthMult = 0.44;
+      currentLiftMult = 0.24;
+    }
+  }
+
+  function setShade(shade) {
+    currentShade = shade;
+
+    document.querySelectorAll(".shade-btn").forEach(btn => {
+      btn.style.borderWidth = "1px";
+      btn.style.borderColor = "rgba(255,255,255,0.2)";
+    });
+    const activeShade = document.getElementById(`shade-${shade}`);
+    if (activeShade) {
+      activeShade.style.borderWidth = "2px";
+      activeShade.style.borderColor = "#ffffff";
+    }
+  }
+
+    // Step 2: What happens when MediaPipe finds a face?
+    faceMesh.onResults((results) => {
+  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+  if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+      const landmarks = results.multiFaceLandmarks[0];
+
+      // 1. Check if facing forward
+      const noseTip = landmarks[1];
+      const leftCheek = landmarks[234];
+      const rightCheek = landmarks[454];
+      const yawRatio = Math.abs(noseTip.x - leftCheek.x) / (Math.abs(rightCheek.x - noseTip.x) + 0.0001);
+
+      if (yawRatio > 0.8 && yawRatio < 1.25) {
+        const lWidth = Math.hypot(landmarks[33].x - landmarks[133].x, landmarks[33].y - landmarks[133].y);
+        const lHeight = Math.hypot(landmarks[159].x - landmarks[145].x, landmarks[159].y - landmarks[145].y);
+
+        const rWidth = Math.hypot(landmarks[263].x - landmarks[362].x, landmarks[263].y - landmarks[362].y);
+        const rHeight = Math.hypot(landmarks[386].x - landmarks[374].x, landmarks[386].y - landmarks[374].y);
+
+        const rawRatio = ((lHeight / lWidth) + (rHeight / rWidth)) / 2;
+        const avgTilt = ((landmarks[133].y - landmarks[33].y) + (landmarks[362].y - landmarks[263].y)) / 2;
+
+        // Ignore blinks & heavy squints (rawRatio < 0.21)
+        if (rawRatio > 0.21) {
+          ratioHistory.push(rawRatio);
+          if (ratioHistory.length > 45) ratioHistory.shift(); // Keep last ~1.5 seconds of frames
+
+          // Calculate smooth rolling average
+          const smoothRatio = ratioHistory.reduce((a, b) => a + b, 0) / ratioHistory.length;
+
+          // Only update once we have at least 15 steady frames & use buffer zones so it never flickers
+          if (ratioHistory.length >= 15 && selectedMode === "auto") {
+            if (smoothRatio > 0.41) {
+              currentEyeType = "Round Eyes";
+              currentWingStyle = "Elongated Fox Flick";
+              currentLengthMult = 0.38;
+              currentLiftMult = 0.10;
+            } else if (smoothRatio < 0.25) {
+              currentEyeType = "Hooded / Deep-Set Eyes";
+              currentWingStyle = "Micro Puppy / Straight Flick";
+              currentLengthMult = 0.22;
+              currentLiftMult = 0.06;
+            } else if (avgTilt < -0.015) {
+              currentEyeType = "Downturned Eyes";
+              currentWingStyle = "Lifted Siren Flick";
+              currentLengthMult = 0.30;
+              currentLiftMult = 0.22;
+            } else if (smoothRatio >= 0.26 && smoothRatio <= 0.33) {
+              currentEyeType = "Almond Eyes";
+              currentWingStyle = "Classic Wing";
+              currentLengthMult = 0.30;
+              currentLiftMult = 0.16;
+            }
+          }
+        }
+      }
+
+      statusText.innerText = `Live: ${currentEyeType} ✨ Style: ${currentWingStyle}`;
+      // 2. Draw Bold, Solid Jet-Black Eyeliner
+      function drawCustomWing(innerIdx, outerIdx, midLashIdx, outerLashIdx) {
+        const inPt = landmarks[innerIdx];
+        const outPt = landmarks[outerIdx];
+        const midPt = landmarks[midLashIdx];
+        const outLashPt = landmarks[outerLashIdx];
+
+        const ix = inPt.x * canvasElement.width;
+        const iy = inPt.y * canvasElement.height;
+        const ox = outPt.x * canvasElement.width;
+        const oy = outPt.y * canvasElement.height;
+        const mx = midPt.x * canvasElement.width;
+        const my = midPt.y * canvasElement.height;
+        const ux = outLashPt.x * canvasElement.width;
+        const uy = outLashPt.y * canvasElement.height;
+
+        const dx = ox - ix;
+        const dy = oy - iy;
+        const widthPx = Math.hypot(dx, dy);
+
+        const dirX = dx / widthPx;
+        const dirY = dy / widthPx;
+
+        const wingLength = widthPx * currentLengthMult;
+        const tipX = ox + dirX * wingLength;
+        const tipY = oy + dirY * wingLength - (widthPx * currentLiftMult);
+
+        // Smooth Bézier curve instead of sharp straight lines
+        canvasCtx.save();
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(mx, my);
+        // Curve gently through the outer upper lash point toward the tip
+        canvasCtx.quadraticCurveTo(ux, uy, tipX, tipY);
+        // Sweep smoothly back into the outer eye corner
+        canvasCtx.quadraticCurveTo((tipX + ox) / 2, oy + 1.5, ox, oy);
+        canvasCtx.closePath();
+
+        if (currentShade === "stencil") {
+          // Dotted tracing stencil guide for real makeup application!
+          canvasCtx.setLineDash([4, 3]);
+          canvasCtx.strokeStyle = "#00f0ff";
+          canvasCtx.lineWidth = 1.8;
+          canvasCtx.fillStyle = "rgba(0, 240, 255, 0.14)";
+          canvasCtx.fill();
+          canvasCtx.stroke();
+        } else {
+          // Smooth, realistic liquid liner finishes with subtle edge softness
+          let fill = "rgba(10, 10, 12, 0.90)";
+          if (currentShade === "espresso") fill = "rgba(59, 35, 22, 0.88)";
+          if (currentShade === "plum") fill = "rgba(92, 22, 48, 0.88)";
+
+          canvasCtx.shadowColor = fill;
+          canvasCtx.shadowBlur = 2.5;
+          canvasCtx.fillStyle = fill;
+          canvasCtx.fill();
+        }
+        canvasCtx.restore();
+      }
+      
+
+      drawCustomWing(133, 33, 160, 246);
+      drawCustomWing(362, 263, 387, 466);
+  } else {
+    statusText.innerText = "No face detected in camera frame.";
+  }
+});
+   
+
+    // Step 3: Connect Camera feed directly to MediaPipe AI Scanner
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        await faceMesh.send({ image: video });
+      },
+      width: 640,
+      height: 480
+    });
+
+    // Start tracking!
+    camera.start();
+  </script>
+</body>
+</html>
